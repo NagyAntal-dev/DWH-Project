@@ -1,2 +1,32 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+
+# Airflow
+logs/
+airflow.cfg
+airflow.db
+webserver_config.py
+
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project notes
 CLAUDE.md
 PLAN.md
