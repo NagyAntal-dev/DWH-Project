@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: dw
+    description: "Data Warehouse — star schema tables"
+    schema: public
+    tables:
+      - name: dim_coin
+        description: "Coin dimension (SCD-2)"
+      - name: dim_date
+        description: "Calendar dimension"
+      - name: dim_time
+        description: "Hour-of-day dimension"
+      - name: dim_currency
+        description: "Currency reference dimension"
+      - name: fact_market_snapshot
+        description: "Price/mcap/volume snapshots per coin"
+      - name: fact_ohlc_daily
+        description: "Daily OHLC candle data per coin"
+      - name: fact_global_market
+        description: "Global crypto market statistics"
+      - name: fact_trending
+        description: "Trending coin rankings"

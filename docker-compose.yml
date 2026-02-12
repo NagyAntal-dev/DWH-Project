@@ -1,138 +1,134 @@
-# ============================================================
-#  Crypto Data Warehouse — Docker Compose Stack
-# ============================================================
-
-x-airflow-common: &airflow-common
-  build:
-    context: .
-    dockerfile: Dockerfile.airflow
-  env_file: .env
-  environment:
-    AIRFLOW__CORE__EXECUTOR: ${AIRFLOW__CORE__EXECUTOR:-LocalExecutor}
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
-    AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES:-false}
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: ${AIRFLOW__WEBSERVER__EXPOSE_CONFIG:-true}
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: ${AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION:-true}
-    # Pass through for DAGs
-    COINGECKO_API_KEY: ${COINGECKO_API_KEY}
-    OLTP_DB_HOST: ${OLTP_DB_HOST:-oltp-db}
-    OLTP_DB_PORT: ${OLTP_DB_PORT:-5432}
-    OLTP_DB_NAME: ${OLTP_DB_NAME:-crypto_oltp}
-    OLTP_DB_USER: ${OLTP_DB_USER:-oltp_user}
-    OLTP_DB_PASSWORD: ${OLTP_DB_PASSWORD:-oltp_pass}
-    DW_DB_HOST: ${DW_DB_HOST:-dw-db}
-    DW_DB_PORT: ${DW_DB_PORT:-5432}
-    DW_DB_NAME: ${DW_DB_NAME:-crypto_dw}
-    DW_DB_USER: ${DW_DB_USER:-dw_user}
-    DW_DB_PASSWORD: ${DW_DB_PASSWORD:-dw_pass}
-  volumes:
-    - ./dags:/opt/airflow/dags
-    - ./dbt:/opt/dbt
-    - airflow-logs:/opt/airflow/logs
-  depends_on:
-    oltp-db:
-      condition: service_healthy
-    dw-db:
-      condition: service_healthy
-    redis:
-      condition: service_healthy
+##############################################################
+# Crypto Data Warehouse — Docker Compose
+##############################################################
 
 services:
-  # ── Databases ───────────────────────────────────────────────
+
+  # ── OLTP PostgreSQL (raw CoinGecko data + Airflow metadata) ──
   oltp-db:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: crypto-oltp-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${OLTP_DB_USER:-oltp_user}
-      POSTGRES_PASSWORD: ${OLTP_DB_PASSWORD:-oltp_pass}
-      POSTGRES_DB: ${OLTP_DB_NAME:-crypto_oltp}
+      POSTGRES_USER: ${OLTP_DB_USER}
+      POSTGRES_PASSWORD: ${OLTP_DB_PASSWORD}
+      POSTGRES_DB: ${OLTP_DB_NAME}
     ports:
       - "5435:5432"
     volumes:
       - oltp-data:/var/lib/postgresql/data
-      - ./oltp/init:/docker-entrypoint-initdb.d
+      - ./init-scripts/oltp:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${OLTP_DB_USER:-oltp_user} -d ${OLTP_DB_NAME:-crypto_oltp}"]
+      test: ["CMD-SHELL", "pg_isready -U ${OLTP_DB_USER} -d ${OLTP_DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ── DW PostgreSQL (star schema) ──
   dw-db:
-    image: postgres:16
+    image: postgres:16-alpine
     container_name: crypto-dw-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DW_DB_USER:-dw_user}
-      POSTGRES_PASSWORD: ${DW_DB_PASSWORD:-dw_pass}
-      POSTGRES_DB: ${DW_DB_NAME:-crypto_dw}
+      POSTGRES_USER: ${DW_DB_USER}
+      POSTGRES_PASSWORD: ${DW_DB_PASSWORD}
+      POSTGRES_DB: ${DW_DB_NAME}
     ports:
       - "5436:5432"
     volumes:
       - dw-data:/var/lib/postgresql/data
-      - ./dw/init:/docker-entrypoint-initdb.d
+      - ./init-scripts/dw:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DW_DB_USER:-dw_user} -d ${DW_DB_NAME:-crypto_dw}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DW_DB_USER} -d ${DW_DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ── Redis ───────────────────────────────────────────────────
+  # ── Redis (Airflow support) ──
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: crypto-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
-    volumes:
-      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ── Airflow ─────────────────────────────────────────────────
+  # ── Airflow Init (DB migration + admin user creation) ──
   airflow-init:
-    <<: *airflow-common
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: crypto-airflow-init
+    env_file: .env
     entrypoint: /bin/bash
     command:
       - -c
       - |
         airflow db migrate &&
         airflow users create \
-          --username $${AIRFLOW_ADMIN_USER:-admin} \
-          --password $${AIRFLOW_ADMIN_PASSWORD:-admin} \
+          --username "$${AIRFLOW_ADMIN_USER}" \
+          --password "$${AIRFLOW_ADMIN_PASSWORD}" \
           --firstname Admin \
           --lastname User \
           --role Admin \
-          --email $${AIRFLOW_ADMIN_EMAIL:-admin@example.com} || true &&
-        echo "✅ Airflow init complete"
-    restart: "no"
+          --email "$${AIRFLOW_ADMIN_EMAIL}" || true &&
+        echo 'Airflow init complete'
+    depends_on:
+      oltp-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
+  # ── Airflow Webserver ──
   airflow-webserver:
-    <<: *airflow-common
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: crypto-airflow-webserver
     restart: unless-stopped
+    env_file: .env
     command: airflow webserver
     ports:
       - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
+  # ── Airflow Scheduler (also runs dbt) ──
   airflow-scheduler:
-    <<: *airflow-common
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: crypto-airflow-scheduler
     restart: unless-stopped
+    env_file: .env
     command: airflow scheduler
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./dbt:/opt/dbt
+      - airflow-logs:/opt/airflow/logs
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+      oltp-db:
+        condition: service_healthy
+      dw-db:
+        condition: service_healthy
 
-  # ── Metabase ────────────────────────────────────────────────
+  # ── Metabase (BI / Dashboards) ──
   metabase:
     image: metabase/metabase:latest
     container_name: crypto-metabase
@@ -150,6 +146,5 @@ services:
 volumes:
   oltp-data:
   dw-data:
-  redis-data:
   airflow-logs:
   metabase-data:

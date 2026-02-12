@@ -24,14 +24,15 @@ CoinGecko API ──► Airflow DAG ──► PostgreSQL (OLTP) ──► Postgr
 ## Gyorsindítás
 
 ```bash
-# 1. CoinGecko API kulcs beállítása
-cp .env.example .env   # vagy szerkeszd a meglévő .env fájlt
-# Szerkeszd a .env-t: COINGECKO_API_KEY=CG-xxxxxxxxxxxx
+# 1. Környezeti változók beállítása
+cp .env.example .env
+# Opcionális: szerkeszd a .env-t és add meg a CoinGecko Demo API kulcsot
+# (ingyenes, de ajánlott): https://www.coingecko.com/en/api
 
 # 2. Indítás
-docker compose up -d
+docker compose up -d --build
 
-# 3. Várd meg az inicializálást (~60 mp)
+# 3. Várd meg az inicializálást (~90 mp)
 docker compose logs -f airflow-init
 
 # 4. Nyisd meg az Airflow UI-t és engedélyezd a crypto_etl_pipeline DAG-ot
@@ -40,6 +41,31 @@ docker compose logs -f airflow-init
 # 5. Metabase beállítása → connect to DW
 # http://localhost:3000 → Add database:
 #   Host: dw-db | Port: 5432 | DB: crypto_dw | User: dw_user | Pass: dw_pass
+```
+
+## Projektstruktúra
+
+```
+├── docker-compose.yml          # 7 szolgáltatás definíciója
+├── Dockerfile                  # Airflow + dbt egyedi image
+├── requirements.txt            # Python függőségek
+├── .env / .env.example         # Környezeti változók
+├── init-scripts/
+│   ├── oltp/                   # OLTP séma inicializálás
+│   │   ├── 01_create_databases.sql
+│   │   └── 02_schema.sql
+│   └── dw/                     # DW csillagséma inicializálás
+│       └── 01_schema.sql
+├── dags/
+│   ├── crypto_etl_pipeline.py  # Fő ETL DAG
+│   └── scripts/
+│       └── extract_coingecko.py # CoinGecko API kinyerés
+└── dbt/
+    ├── dbt_project.yml
+    ├── profiles.yml
+    └── models/
+        ├── staging/            # Staging nézetek
+        └── marts/              # Aggregált mart táblák
 ```
 
 ## Adatbázis séma
@@ -57,6 +83,17 @@ docker compose logs -f airflow-init
 
 ### dbt Marts
 - `mart_daily_coin_summary` — Napi aggregált coin-metrikák dashboardokhoz
+- `mart_global_market_daily` — Napi globális piaci összefoglaló
+- `mart_trending_history` — Trendező coinok története
+
+## ETL Pipeline
+
+A `crypto_etl_pipeline` DAG **2 óránként** fut és a következő lépéseket hajtja végre:
+
+1. **Extract** — CoinGecko API hívások (markets, trending, global, OHLC)
+2. **Load OLTP** — Nyers adatok betöltése az OLTP adatbázisba
+3. **Load DW** — Dimenziók és tény táblák feltöltése (SCD-2)
+4. **dbt Run** — Mart táblák létrehozása/frissítése
 
 ## Hasznos parancsok
 
@@ -65,16 +102,19 @@ docker compose logs -f airflow-init
 docker compose logs -f airflow-scheduler
 
 # OLTP-hez csatlakozás
-psql -h localhost -p 5435 -U oltp_user -d crypto_oltp
+docker compose exec oltp-db psql -U oltp_user -d crypto_oltp
 
 # DW-hez csatlakozás
-psql -h localhost -p 5436 -U dw_user -d crypto_dw
+docker compose exec dw-db psql -U dw_user -d crypto_dw
 
 # dbt futtatás kézzel (a scheduler containerből)
 docker compose exec airflow-scheduler bash -c "cd /opt/dbt && dbt run --profiles-dir ."
 
+# Összes konténer állapota
+docker compose ps
+
 # Újraindítás tiszta állapotból
-docker compose down -v && docker compose up -d
+docker compose down -v && docker compose up -d --build
 ```
 
 ## Továbbfejlesztési lehetőségek

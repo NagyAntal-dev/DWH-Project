@@ -19,6 +19,9 @@ dbt/target/
 dbt/logs/
 dbt/dbt_packages/
 
+# Docker
+docker-compose.override.yml
+
 # IDE
 .vscode/
 .idea/

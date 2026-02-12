@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: mart_daily_coin_summary
+    description: "Daily aggregated coin metrics — price, volume, mcap, OHLC"
+    columns:
+      - name: full_date
+        description: "Calendar date"
+      - name: coin_id
+        description: "CoinGecko coin identifier"
+      - name: coin_name
+        description: "Coin display name"
+
+  - name: mart_global_market_daily
+    description: "Daily global crypto market aggregates — total mcap, volume, BTC dominance"
+    columns:
+      - name: full_date
+        description: "Calendar date"
+      - name: avg_total_market_cap_usd
+        description: "Average total market cap in USD"
+
+  - name: mart_trending_history
+    description: "Historical log of trending coins on CoinGecko"
+    columns:
+      - name: full_date
+        description: "Calendar date"
+      - name: coin_id
+        description: "CoinGecko coin identifier"
+      - name: trending_rank
+        description: "Trending position (lower = more popular)"

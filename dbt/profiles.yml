@@ -1,0 +1,12 @@
+crypto_dw:
+  target: prod
+  outputs:
+    prod:
+      type: postgres
+      host: "{{ env_var('DW_DB_HOST', 'dw-db') }}"
+      port: "{{ env_var('DW_DB_PORT', '5432') | int }}"
+      user: "{{ env_var('DW_DB_USER', 'dw_user') }}"
+      pass: "{{ env_var('DW_DB_PASSWORD', 'dw_pass') }}"
+      dbname: "{{ env_var('DW_DB_NAME', 'crypto_dw') }}"
+      schema: public
+      threads: 2
