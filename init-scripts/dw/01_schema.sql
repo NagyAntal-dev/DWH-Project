@@ -126,8 +126,11 @@ INSERT INTO dim_time (time_key, hour_label)
 SELECT h, LPAD(h::TEXT, 2, '0') || ':00'
 FROM generate_series(0, 23) AS h;
 
--- Populate dim_currency (usd only to start)
+-- Populate dim_currency
 INSERT INTO dim_currency (currency_id, currency_name) VALUES ('usd', 'US Dollar');
+INSERT INTO dim_currency (currency_id, currency_name) VALUES ('eur', 'Euro');
+INSERT INTO dim_currency (currency_id, currency_name) VALUES ('huf', 'Hungarian Forint');
+INSERT INTO dim_currency (currency_id, currency_name) VALUES ('btc', 'Bitcoin');
 
 -- Populate dim_date (2020-01-01 to 2030-12-31)
 INSERT INTO dim_date (date_key, full_date, year, quarter, month, month_name,

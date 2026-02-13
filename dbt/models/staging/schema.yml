@@ -6,18 +6,183 @@ sources:
     schema: public
     tables:
       - name: dim_coin
-        description: "Coin dimension (SCD-2)"
+        description: "Coin dimension (SCD-2) — one row per coin version"
       - name: dim_date
-        description: "Calendar dimension"
+        description: "Calendar dimension (2020–2030)"
       - name: dim_time
-        description: "Hour-of-day dimension"
+        description: "Hour-of-day dimension (0–23)"
       - name: dim_currency
-        description: "Currency reference dimension"
+        description: "Currency reference dimension (USD, EUR, HUF, BTC)"
       - name: fact_market_snapshot
-        description: "Price/mcap/volume snapshots per coin"
+        description: "Price/mcap/volume snapshots per coin per currency"
       - name: fact_ohlc_daily
-        description: "Daily OHLC candle data per coin"
+        description: "Daily OHLC candle data per coin per currency"
       - name: fact_global_market
         description: "Global crypto market statistics"
       - name: fact_trending
-        description: "Trending coin rankings"
+        description: "Trending coin rankings from CoinGecko"
+
+models:
+  - name: stg_coins
+    description: "Current active coins from dim_coin (is_current = TRUE)"
+    columns:
+      - name: coin_key
+        description: "Surrogate key for the coin dimension"
+        data_tests:
+          - not_null
+          - unique
+      - name: coin_id
+        description: "CoinGecko coin identifier (e.g. 'bitcoin')"
+        data_tests:
+          - not_null
+          - unique
+      - name: symbol
+        description: "Ticker symbol (e.g. 'btc')"
+        data_tests:
+          - not_null
+      - name: name
+        description: "Human-readable coin name (e.g. 'Bitcoin')"
+        data_tests:
+          - not_null
+      - name: image_url
+        description: "URL to the coin logo image"
+      - name: market_cap_rank
+        description: "Current market-cap ranking"
+      - name: valid_from
+        description: "SCD-2 validity start timestamp"
+      - name: valid_to
+        description: "SCD-2 validity end timestamp (9999-12-31 if current)"
+      - name: is_current
+        description: "Always TRUE in this staging view"
+
+  - name: stg_market_snapshots
+    description: "Market snapshot facts — price, mcap, volume per coin at each time point"
+    columns:
+      - name: snapshot_key
+        description: "Primary key for the snapshot fact"
+        data_tests:
+          - not_null
+          - unique
+      - name: coin_key
+        description: "FK to dim_coin"
+        data_tests:
+          - not_null
+      - name: date_key
+        description: "FK to dim_date (YYYYMMDD integer)"
+        data_tests:
+          - not_null
+      - name: time_key
+        description: "FK to dim_time (0–23 hour)"
+        data_tests:
+          - not_null
+      - name: currency_key
+        description: "FK to dim_currency"
+        data_tests:
+          - not_null
+      - name: current_price
+        description: "Spot price in the given currency"
+      - name: market_cap
+        description: "Market capitalization"
+      - name: total_volume
+        description: "24h trading volume"
+      - name: high_24h
+        description: "24h high price"
+      - name: low_24h
+        description: "24h low price"
+      - name: price_change_percentage_24h
+        description: "24h price change percentage"
+      - name: circulating_supply
+        description: "Circulating supply of the coin"
+      - name: total_supply
+        description: "Total supply of the coin"
+      - name: source_snapshot_time
+        description: "Original UTC timestamp of the snapshot"
+
+  - name: stg_ohlc_daily
+    description: "Daily OHLC candlestick data per coin per currency"
+    columns:
+      - name: ohlc_key
+        description: "Primary key for the OHLC record"
+        data_tests:
+          - not_null
+          - unique
+      - name: coin_key
+        description: "FK to dim_coin"
+        data_tests:
+          - not_null
+      - name: date_key
+        description: "FK to dim_date (YYYYMMDD integer)"
+        data_tests:
+          - not_null
+      - name: currency_key
+        description: "FK to dim_currency"
+        data_tests:
+          - not_null
+      - name: open_price
+        description: "Opening price for the day"
+      - name: high_price
+        description: "Highest price during the day"
+      - name: low_price
+        description: "Lowest price during the day"
+      - name: close_price
+        description: "Closing price for the day"
+
+  - name: stg_global
+    description: "Global crypto market aggregate statistics"
+    columns:
+      - name: global_key
+        description: "Primary key for the global market record"
+        data_tests:
+          - not_null
+          - unique
+      - name: date_key
+        description: "FK to dim_date"
+        data_tests:
+          - not_null
+      - name: time_key
+        description: "FK to dim_time"
+        data_tests:
+          - not_null
+      - name: active_cryptocurrencies
+        description: "Number of active cryptocurrencies"
+      - name: markets
+        description: "Number of active exchanges/markets"
+      - name: total_market_cap_usd
+        description: "Total crypto market cap in USD"
+      - name: total_volume_usd
+        description: "Total 24h trading volume in USD"
+      - name: market_cap_percentage_btc
+        description: "BTC dominance percentage"
+      - name: market_cap_percentage_eth
+        description: "ETH dominance percentage"
+      - name: market_cap_change_percentage_24h
+        description: "24h market cap change percentage"
+      - name: source_snapshot_time
+        description: "Original UTC timestamp"
+
+  - name: stg_trending
+    description: "Trending coin rankings from CoinGecko"
+    columns:
+      - name: trending_key
+        description: "Primary key for the trending record"
+        data_tests:
+          - not_null
+          - unique
+      - name: coin_key
+        description: "FK to dim_coin"
+        data_tests:
+          - not_null
+      - name: date_key
+        description: "FK to dim_date"
+        data_tests:
+          - not_null
+      - name: time_key
+        description: "FK to dim_time"
+        data_tests:
+          - not_null
+      - name: trending_rank
+        description: "Position in trending list (lower = more popular)"
+      - name: price_btc
+        description: "Price denominated in BTC"
+      - name: source_snapshot_time
+        description: "Original UTC timestamp"

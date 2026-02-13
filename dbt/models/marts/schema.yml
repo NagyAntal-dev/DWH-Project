@@ -2,29 +2,96 @@ version: 2
 
 models:
   - name: mart_daily_coin_summary
-    description: "Daily aggregated coin metrics — price, volume, mcap, OHLC"
+    description: "Daily aggregated coin metrics — price, volume, mcap, OHLC. One row per coin per day."
     columns:
       - name: full_date
         description: "Calendar date"
+        data_tests:
+          - not_null
       - name: coin_id
         description: "CoinGecko coin identifier"
+        data_tests:
+          - not_null
       - name: coin_name
-        description: "Coin display name"
+        description: "Human-readable coin name"
+        data_tests:
+          - not_null
+      - name: symbol
+        description: "Ticker symbol"
+      - name: market_cap_rank
+        description: "Market-cap ranking at the time"
+      - name: avg_price
+        description: "Average spot price across all snapshots for the day"
+      - name: max_price
+        description: "Maximum observed price during the day"
+      - name: min_price
+        description: "Minimum observed price during the day"
+      - name: avg_market_cap
+        description: "Average market capitalization"
+      - name: avg_volume
+        description: "Average 24h trading volume"
+      - name: avg_price_change_pct_24h
+        description: "Average 24h price change percentage"
+      - name: circulating_supply
+        description: "Latest circulating supply for the day"
+      - name: total_supply
+        description: "Latest total supply for the day"
+      - name: snapshot_count
+        description: "Number of snapshots aggregated"
+      - name: open_price
+        description: "OHLC opening price"
+      - name: high_price
+        description: "OHLC high price"
+      - name: low_price
+        description: "OHLC low price"
+      - name: close_price
+        description: "OHLC closing price"
 
   - name: mart_global_market_daily
     description: "Daily global crypto market aggregates — total mcap, volume, BTC dominance"
     columns:
       - name: full_date
         description: "Calendar date"
+        data_tests:
+          - not_null
+          - unique
       - name: avg_total_market_cap_usd
         description: "Average total market cap in USD"
+      - name: avg_total_volume_usd
+        description: "Average total 24h volume in USD"
+      - name: avg_btc_dominance
+        description: "Average BTC market-cap dominance percentage"
+      - name: avg_eth_dominance
+        description: "Average ETH market-cap dominance percentage"
+      - name: avg_market_cap_change_pct_24h
+        description: "Average 24h market cap change percentage"
+      - name: active_cryptocurrencies
+        description: "Number of active cryptocurrencies"
+      - name: active_markets
+        description: "Number of active exchanges/markets"
+      - name: snapshot_count
+        description: "Number of snapshots aggregated"
 
   - name: mart_trending_history
-    description: "Historical log of trending coins on CoinGecko"
+    description: "Historical log of trending coins on CoinGecko — tracks which coins trend and when"
     columns:
       - name: full_date
         description: "Calendar date"
+        data_tests:
+          - not_null
+      - name: hour_label
+        description: "Hour of day label (e.g. '14:00')"
       - name: coin_id
         description: "CoinGecko coin identifier"
+        data_tests:
+          - not_null
+      - name: coin_name
+        description: "Human-readable coin name"
+      - name: symbol
+        description: "Ticker symbol"
       - name: trending_rank
         description: "Trending position (lower = more popular)"
+      - name: price_btc
+        description: "Price in BTC at the time of trending"
+      - name: source_snapshot_time
+        description: "Original UTC timestamp of the trending snapshot"

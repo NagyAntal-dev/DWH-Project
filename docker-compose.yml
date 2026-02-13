@@ -9,6 +9,10 @@ services:
     image: postgres:16-alpine
     container_name: crypto-oltp-db
     restart: unless-stopped
+    command: >
+      -c wal_level=logical
+      -c max_replication_slots=4
+      -c max_wal_senders=4
     environment:
       POSTGRES_USER: ${OLTP_DB_USER}
       POSTGRES_PASSWORD: ${OLTP_DB_PASSWORD}
@@ -29,6 +33,7 @@ services:
     image: postgres:16-alpine
     container_name: crypto-dw-db
     restart: unless-stopped
+    command: -c wal_level=logical
     environment:
       POSTGRES_USER: ${DW_DB_USER}
       POSTGRES_PASSWORD: ${DW_DB_PASSWORD}

@@ -2,10 +2,12 @@
 Crypto ETL Pipeline — Airflow DAG
 
 Schedule : every 2 hours
-Flow     : Extract CoinGecko → Load OLTP → Load DW dims/facts → dbt run
+Flow     : Extract CoinGecko → Load OLTP → Load DW dims/facts → dbt run → dbt test
 
 CoinGecko free Demo tier: 30 calls/min, 10 K/month.
 The DAG inserts 5-second pauses between API calls to stay within limits.
+
+Multi-currency support: fetches data in USD, EUR, HUF, BTC.
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ default_args = {
 
 CALL_DELAY = 5  # seconds between CoinGecko calls
 TOP_N_OHLC = 10  # number of coins to fetch OHLC for
+VS_CURRENCIES = ["usd", "eur", "huf", "btc"]  # supported quote currencies
 
 
 # ══════════════════════════════════════════════════════════════
@@ -39,9 +42,15 @@ TOP_N_OHLC = 10  # number of coins to fetch OHLC for
 
 def _extract_markets(ti):
     from scripts.extract_coingecko import fetch_markets
-    data = fetch_markets(vs_currency="usd", per_page=50, page=1)
-    ti.xcom_push(key="markets", value=json.dumps(data, default=str))
-    log.info("Extracted %d market entries", len(data))
+
+    all_markets = {}
+    for vs in VS_CURRENCIES:
+        time.sleep(CALL_DELAY)
+        data = fetch_markets(vs_currency=vs, per_page=50, page=1)
+        all_markets[vs] = data
+        log.info("Extracted %d market entries for %s", len(data), vs)
+
+    ti.xcom_push(key="markets", value=json.dumps(all_markets, default=str))
 
 
 def _extract_trending(ti):
@@ -62,15 +71,22 @@ def _extract_global(ti):
 
 def _extract_ohlc(ti):
     from scripts.extract_coingecko import fetch_ohlc
+
     markets_json = ti.xcom_pull(task_ids="extract_markets", key="markets")
-    markets = json.loads(markets_json) if markets_json else []
-    coin_ids = [c["id"] for c in markets[:TOP_N_OHLC]]
+    all_markets = json.loads(markets_json) if markets_json else {}
+    # Use USD market list for coin IDs
+    usd_markets = all_markets.get("usd", [])
+    coin_ids = [c["id"] for c in usd_markets[:TOP_N_OHLC]]
+
     all_ohlc = {}
     for cid in coin_ids:
-        time.sleep(CALL_DELAY)
-        all_ohlc[cid] = fetch_ohlc(cid, vs_currency="usd", days=14)
+        for vs in VS_CURRENCIES:
+            time.sleep(CALL_DELAY)
+            key = f"{cid}__{vs}"
+            all_ohlc[key] = fetch_ohlc(cid, vs_currency=vs, days=14)
+
     ti.xcom_push(key="ohlc", value=json.dumps(all_ohlc, default=str))
-    log.info("Extracted OHLC for %d coins", len(all_ohlc))
+    log.info("Extracted OHLC for %d coin/currency pairs", len(all_ohlc))
 
 
 def _load_to_oltp(ti):
@@ -91,11 +107,13 @@ def _load_to_oltp(ti):
     now = datetime.now(timezone.utc)
 
     try:
-        # ── Markets → raw.coins + raw.market_snapshots ──
+        # ── Markets → raw.coins + raw.market_snapshots (multi-currency) ──
         markets_json = ti.xcom_pull(task_ids="extract_markets", key="markets")
-        markets = json.loads(markets_json) if markets_json else []
+        all_markets = json.loads(markets_json) if markets_json else {}
 
-        for c in markets:
+        # Upsert coins from USD market list (coin metadata is currency-agnostic)
+        usd_markets = all_markets.get("usd", [])
+        for c in usd_markets:
             cur.execute("""
                 INSERT INTO raw.coins (coin_id, symbol, name, image_url, market_cap_rank, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
@@ -110,11 +128,15 @@ def _load_to_oltp(ti):
                 c.get("image", ""), c.get("market_cap_rank"), now,
             ))
 
-        if markets:
+        # Insert market snapshots for each currency
+        total_snapshots = 0
+        for vs_currency, markets in all_markets.items():
+            if not markets:
+                continue
             snapshot_rows = []
             for c in markets:
                 snapshot_rows.append((
-                    c["id"], "usd", now,
+                    c["id"], vs_currency, now,
                     c.get("current_price"), c.get("market_cap"),
                     c.get("fully_diluted_valuation"), c.get("total_volume"),
                     c.get("high_24h"), c.get("low_24h"),
@@ -134,7 +156,8 @@ def _load_to_oltp(ti):
                    ath, ath_date, atl, atl_date)
                 VALUES %s
             """, snapshot_rows)
-            log.info("Loaded %d market snapshots into OLTP", len(snapshot_rows))
+            total_snapshots += len(snapshot_rows)
+        log.info("Loaded %d market snapshots into OLTP (multi-currency)", total_snapshots)
 
         # ── Trending → raw.trending_coins ──
         trending_json = ti.xcom_pull(task_ids="extract_trending", key="trending")
@@ -175,11 +198,13 @@ def _load_to_oltp(ti):
             ))
             log.info("Loaded global market data into OLTP")
 
-        # ── OHLC → raw.ohlc_daily ──
+        # ── OHLC → raw.ohlc_daily (multi-currency) ──
         ohlc_json = ti.xcom_pull(task_ids="extract_ohlc", key="ohlc")
         all_ohlc = json.loads(ohlc_json) if ohlc_json else {}
         ohlc_count = 0
-        for coin_id, candles in all_ohlc.items():
+        for compound_key, candles in all_ohlc.items():
+            coin_id, vs_currency = compound_key.split("__", 1)
+
             # Aggregate sub-daily candles to daily
             daily: dict = {}
             for c in candles:
@@ -197,13 +222,13 @@ def _load_to_oltp(ti):
                 cur.execute("""
                     INSERT INTO raw.ohlc_daily
                       (coin_id, vs_currency, ohlc_date, open_price, high_price, low_price, close_price)
-                    VALUES (%s, 'usd', %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (coin_id, vs_currency, ohlc_date) DO UPDATE SET
                         open_price  = EXCLUDED.open_price,
                         high_price  = EXCLUDED.high_price,
                         low_price   = EXCLUDED.low_price,
                         close_price = EXCLUDED.close_price
-                """, (coin_id, ohlc_date,
+                """, (coin_id, vs_currency, ohlc_date,
                       vals["open"], vals["high"], vals["low"], vals["close"]))
                 ohlc_count += 1
         log.info("Loaded %d OHLC daily rows into OLTP", ohlc_count)
@@ -273,7 +298,7 @@ def _load_to_dw(ti):
                     VALUES (%s, %s, %s, %s, %s)
                 """, (coin_id, symbol, name, image_url, mcr))
 
-        # ── fact_market_snapshot ──
+        # ── fact_market_snapshot (multi-currency) ──
         # Load most recent snapshots not yet in DW
         dw_cur.execute("SELECT COALESCE(MAX(source_snapshot_time), '1970-01-01'::TIMESTAMPTZ) FROM fact_market_snapshot")
         last_loaded = dw_cur.fetchone()[0]
@@ -320,7 +345,7 @@ def _load_to_dw(ti):
             snap_count += 1
         log.info("Loaded %d market snapshots into DW", snap_count)
 
-        # ── fact_ohlc_daily ──
+        # ── fact_ohlc_daily (multi-currency) ──
         oltp_cur.execute("""
             SELECT coin_id, vs_currency, ohlc_date, open_price, high_price, low_price, close_price
             FROM raw.ohlc_daily
@@ -424,7 +449,7 @@ def _load_to_dw(ti):
 with DAG(
     dag_id="crypto_etl_pipeline",
     default_args=default_args,
-    description="Extract CoinGecko data → OLTP → DW star schema → dbt marts",
+    description="Extract CoinGecko data → OLTP → DW star schema → dbt marts (multi-currency)",
     schedule_interval="0 */2 * * *",  # every 2 hours
     start_date=datetime(2025, 1, 1),
     catchup=False,
@@ -466,8 +491,13 @@ with DAG(
         bash_command="cd /opt/dbt && DBT_LOG_PATH=/tmp/dbt-logs DBT_TARGET_PATH=/tmp/dbt-target dbt run --profiles-dir . 2>&1",
     )
 
+    run_dbt_test = BashOperator(
+        task_id="run_dbt_test",
+        bash_command="cd /opt/dbt && DBT_LOG_PATH=/tmp/dbt-logs DBT_TARGET_PATH=/tmp/dbt-target dbt test --profiles-dir . 2>&1",
+    )
+
     # Task dependencies
     # Extract tasks run in parallel (except OHLC needs market list)
     extract_markets >> extract_ohlc
     [extract_markets, extract_trending, extract_global, extract_ohlc] >> load_oltp
-    load_oltp >> load_dw >> run_dbt
+    load_oltp >> load_dw >> run_dbt >> run_dbt_test
