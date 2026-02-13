@@ -463,7 +463,7 @@ with DAG(
 
     run_dbt = BashOperator(
         task_id="run_dbt",
-        bash_command="cd /opt/dbt && dbt run --profiles-dir . 2>&1",
+        bash_command="cd /opt/dbt && DBT_LOG_PATH=/tmp/dbt-logs DBT_TARGET_PATH=/tmp/dbt-target dbt run --profiles-dir . 2>&1",
     )
 
     # Task dependencies

@@ -11,8 +11,6 @@ seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
-log-path: "/tmp/dbt-logs"
-target-path: "/tmp/dbt-target"
 packages-install-path: "/tmp/dbt-packages"
 
 clean-targets:
