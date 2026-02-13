@@ -1,15 +1,18 @@
 -- ============================================================
--- CDC Setup — DW Subscription Schema
--- Creates the cdc_raw schema with mirror tables and subscription
+-- CDC Setup — DW Subscriber Schema
+-- PostgreSQL logical replication requires the SAME schema/table
+-- names on subscriber as on publisher, so we create a "raw"
+-- schema here with identical mirror tables.
+--
 -- NOTE: The SUBSCRIPTION itself is created by the cdc_setup_dag
 --       because both DBs start simultaneously and the OLTP
 --       publication must exist first.
 -- ============================================================
 
-CREATE SCHEMA IF NOT EXISTS cdc_raw;
+CREATE SCHEMA IF NOT EXISTS raw;
 
 -- ── Mirror: raw.coins ──
-CREATE TABLE cdc_raw.coins (
+CREATE TABLE raw.coins (
     coin_id         VARCHAR(100) PRIMARY KEY,
     symbol          VARCHAR(50)  NOT NULL,
     name            VARCHAR(200) NOT NULL,
@@ -23,7 +26,7 @@ CREATE TABLE cdc_raw.coins (
 );
 
 -- ── Mirror: raw.market_snapshots ──
-CREATE TABLE cdc_raw.market_snapshots (
+CREATE TABLE raw.market_snapshots (
     id                          BIGSERIAL    PRIMARY KEY,
     coin_id                     VARCHAR(100) NOT NULL,
     vs_currency                 VARCHAR(10)  NOT NULL DEFAULT 'usd',
@@ -47,7 +50,7 @@ CREATE TABLE cdc_raw.market_snapshots (
 );
 
 -- ── Mirror: raw.ohlc_daily ──
-CREATE TABLE cdc_raw.ohlc_daily (
+CREATE TABLE raw.ohlc_daily (
     id          BIGSERIAL    PRIMARY KEY,
     coin_id     VARCHAR(100) NOT NULL,
     vs_currency VARCHAR(10)  NOT NULL DEFAULT 'usd',
@@ -61,7 +64,7 @@ CREATE TABLE cdc_raw.ohlc_daily (
 );
 
 -- ── Mirror: raw.trending_coins ──
-CREATE TABLE cdc_raw.trending_coins (
+CREATE TABLE raw.trending_coins (
     id              BIGSERIAL    PRIMARY KEY,
     coin_id         VARCHAR(100) NOT NULL,
     name            VARCHAR(200),
@@ -73,7 +76,7 @@ CREATE TABLE cdc_raw.trending_coins (
 );
 
 -- ── Mirror: raw.global_market ──
-CREATE TABLE cdc_raw.global_market (
+CREATE TABLE raw.global_market (
     id                              BIGSERIAL   PRIMARY KEY,
     snapshot_time                    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     active_cryptocurrencies         INTEGER,
